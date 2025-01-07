@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, Tuple, Sequence
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, relationship
-from sqlalchemy import TIMESTAMP, MetaData, Integer, String, Boolean, ForeignKey, select, and_
+from sqlalchemy import TIMESTAMP, MetaData, Integer, String, Boolean, ForeignKey, select, and_, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -16,7 +16,10 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     refresh_token: Mapped[str] = mapped_column(String(500), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(100), nullable=False)
-    chats: Mapped[List["Chat"]] = relationship(back_populates="user")
+    chats: Mapped[List["Chat"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
     @classmethod
     async def get_by_username(cls, session: AsyncSession, username: str) -> Optional["User"]:
@@ -83,19 +86,21 @@ class Chat(Base):
     __tablename__ = "chats"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
-    user: Mapped[User] = relationship(back_populates="chats")
-    messages: Mapped[List["Message"]] = relationship(back_populates="chat")
+    thread_id: Mapped[str] = mapped_column(String(500), nullable=True)
+    user: Mapped[User] = relationship(
+        back_populates="chats",
+        cascade="all"
+    )
+    messages: Mapped[List["Message"]] = relationship(
+        back_populates="chat",
+        cascade="all, delete-orphan"
+    )
 
     @classmethod
-    async def create(
-        cls,
-        session: AsyncSession,
-        user_id: int,
-        title: str
-    ) -> "Chat":
+    async def create(cls, session: AsyncSession, user_id: int, title: str) -> "Chat":
         now = datetime.utcnow()
         new_chat = cls(
             user_id=user_id,
@@ -108,42 +113,33 @@ class Chat(Base):
         return new_chat
 
     @classmethod
-    async def get_by_id(
-        cls,
-        session: AsyncSession,
-        chat_id: int,
-        user_id: int
-    ) -> Optional["Chat"]:
-        query = select(cls).where(
-            and_(cls.id == chat_id, cls.user_id == user_id)
-        )
+    async def get_by_id(cls, session: AsyncSession, chat_id: int) -> Optional["Chat"]:
+        query = select(cls).where(cls.id == chat_id)
         result = await session.execute(query)
         return result.scalar_one_or_none()
-
+    
     @classmethod
-    async def get_user_chats(
-        cls,
-        session: AsyncSession,
-        user_id: int
-    ) -> Sequence["Chat"]:
-        query = select(cls).where(cls.user_id == user_id).order_by(cls.updated_at.desc())
+    async def get_last_20_chats(cls, session: AsyncSession, user_id: int) -> Sequence["Chat"]:
+        query = select(cls).where(cls.user_id == user_id).order_by(cls.updated_at.desc()).limit(20)
         result = await session.execute(query)
         return result.scalars().all()
 
-    async def update_title(
-        self,
-        session: AsyncSession,
-        new_title: str
-    ) -> None:
-        self.title = new_title
-        self.updated_at = datetime.utcnow()
+    @classmethod
+    async def delete(cls, session: AsyncSession, chat_id: int) -> None:
+        query = delete(cls).where(cls.id == chat_id)
+        await session.execute(query)
         await session.flush()
 
-    async def delete(
-        self,
-        session: AsyncSession
-    ) -> None:
-        await session.delete(self)
+    @classmethod
+    async def update_title(cls, session: AsyncSession, chat_id: int, new_title: str) -> None:
+        query = update(cls).where(cls.id == chat_id).values(title=new_title)
+        await session.execute(query)
+        await session.flush()
+
+    @classmethod
+    async def update_thread_id(cls, session: AsyncSession, chat_id: int, thread_id: str) -> None:
+        query = update(cls).where(cls.id == chat_id).values(thread_id=thread_id)
+        await session.execute(query)
         await session.flush()
 
 class Message(Base):
@@ -153,7 +149,10 @@ class Message(Base):
     content: Mapped[str] = mapped_column(String(1000), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
     is_sent_by_bot: Mapped[bool] = mapped_column(Boolean, default=False)
-    chat: Mapped[Chat] = relationship(back_populates="messages")
+    chat: Mapped[Chat] = relationship(
+        back_populates="messages",
+        cascade="all"
+    )
 
     @classmethod
     async def create(
@@ -210,19 +209,4 @@ class Message(Base):
         )
         result = await session.execute(query)
         return result.scalar_one_or_none()
-
-    async def update_content(
-        self,
-        session: AsyncSession,
-        new_content: str
-    ) -> None:
-        self.content = new_content
-        await session.flush()
-
-    async def delete(
-        self,
-        session: AsyncSession
-    ) -> None:
-        await session.delete(self)
-        await session.flush()
 
