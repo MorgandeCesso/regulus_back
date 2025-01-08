@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, Tuple, Sequence
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, relationship
-from sqlalchemy import TIMESTAMP, MetaData, Integer, String, Boolean, ForeignKey, select, and_, delete, update
+from sqlalchemy import TIMESTAMP, MetaData, Integer, String, Boolean, ForeignKey, select, and_, delete, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -117,12 +117,6 @@ class Chat(Base):
         query = select(cls).where(cls.id == chat_id)
         result = await session.execute(query)
         return result.scalar_one_or_none()
-    
-    @classmethod
-    async def get_last_20_chats(cls, session: AsyncSession, user_id: int) -> Sequence["Chat"]:
-        query = select(cls).where(cls.user_id == user_id).order_by(cls.updated_at.desc()).limit(20)
-        result = await session.execute(query)
-        return result.scalars().all()
 
     @classmethod
     async def delete(cls, session: AsyncSession, chat_id: int) -> None:
@@ -141,6 +135,31 @@ class Chat(Base):
         query = update(cls).where(cls.id == chat_id).values(thread_id=thread_id)
         await session.execute(query)
         await session.flush()
+
+    @classmethod
+    async def get_chats_paginated(
+        cls,
+        session: AsyncSession,
+        user_id: int,
+        limit: int = 20,
+        offset: int = 0
+    ) -> Tuple[Sequence["Chat"], int]:
+        # Получаем общее количество чатов
+        count_query = select(func.count()).select_from(cls).where(cls.user_id == user_id)
+        total = await session.scalar(count_query) or 0  # Возвращаем 0 если None
+
+        # Получаем чаты с пагинацией
+        query = (
+            select(cls)
+            .where(cls.user_id == user_id)
+            .order_by(cls.updated_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await session.execute(query)
+        chats = result.scalars().all()
+        
+        return chats, total
 
 class Message(Base):
     __tablename__ = "messages"
@@ -180,24 +199,6 @@ class Message(Base):
         return new_message
 
     @classmethod
-    async def get_chat_messages(
-        cls,
-        session: AsyncSession,
-        chat_id: int,
-        limit: int = 50,
-        offset: int = 0
-    ) -> Sequence["Message"]:
-        query = (
-            select(cls)
-            .where(cls.chat_id == chat_id)
-            .order_by(cls.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        result = await session.execute(query)
-        return result.scalars().all()
-
-    @classmethod
     async def get_by_id(
         cls,
         session: AsyncSession,
@@ -209,4 +210,29 @@ class Message(Base):
         )
         result = await session.execute(query)
         return result.scalar_one_or_none()
+
+    @classmethod
+    async def get_chat_messages_paginated(
+        cls,
+        session: AsyncSession,
+        chat_id: int,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Tuple[Sequence["Message"], int]:
+        # Получаем общее количество сообщений
+        count_query = select(func.count()).select_from(cls).where(cls.chat_id == chat_id)
+        total = await session.scalar(count_query) or 0
+
+        # Получаем сообщения с пагинацией
+        query = (
+            select(cls)
+            .where(cls.chat_id == chat_id)
+            .order_by(cls.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await session.execute(query)
+        messages = result.scalars().all()
+        
+        return messages, total
 
