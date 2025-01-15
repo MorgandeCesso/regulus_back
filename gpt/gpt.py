@@ -7,11 +7,13 @@ class GPT:
         self.assistant_id = OPENAI_ASSISTANT_ID
 
     async def create_thread(self, client: AsyncOpenAI):
+        """Создает новый тред"""
         thread = await client.beta.threads.create()
         logging.info(f"Thread created: {thread.id}")
         return thread.id
 
     async def create_message(self, thread_id: str, content: str, client: AsyncOpenAI):
+        """Создает новое сообщение в тред"""
         message = await client.beta.threads.messages.create(
             thread_id=thread_id, 
             role="user", 
@@ -21,6 +23,7 @@ class GPT:
         return message
 
     async def create_and_poll_run(self, thread_id: str, client: AsyncOpenAI, user_name: str):
+        """Создает и запускает новый тред"""
         run = await client.beta.threads.runs.create_and_poll(
             thread_id=thread_id, 
             assistant_id=str(self.assistant_id), 
@@ -29,11 +32,13 @@ class GPT:
         logging.info(f"Run created: {run.id}")
         return run
 
-    async def get_gpt_response(self, thread_id: str, client: AsyncOpenAI):
+    async def get_gpt_response(self, thread_id: str, run_id: str, client: AsyncOpenAI):
+        """Получает ответ от GPT"""
         messages_page = await client.beta.threads.messages.list(
             thread_id=thread_id,
             order="desc",
-            limit=1
+            limit=1,
+            run_id=run_id
         )
         messages = messages_page.data
         
@@ -70,12 +75,46 @@ class GPT:
         return response
 
     async def delete_thread(self, thread_id: str, client: AsyncOpenAI):
+        """Удаляет тред"""
         await client.beta.threads.delete(thread_id=thread_id)
         logging.info(f"Thread deleted: {thread_id}")
         return {"status": "success", "deleted_thread_id": f"{thread_id}"}
 
     async def cancel_run(self, run_id: str, thread_id: str, client: AsyncOpenAI):
+        """Отменяет выполнение задания"""
         await client.beta.threads.runs.cancel(thread_id=thread_id, run_id=run_id)
         logging.info(f"Run cancelled: {run_id}")
         return {"status": "success", "cancelled_run_id": f"{run_id}"}
 
+    async def upload_file_to_vector_store(self, file_content: bytes, vector_store_id: str, client: AsyncOpenAI) -> str:
+        """
+        Загружает файл и привязывает его к векторному хранилищу.
+        
+        Args:
+            file_content: Содержимое файла в байтах
+            vector_store_id: ID векторного хранилища
+            client: OpenAI клиент
+        
+        Returns:
+            str: ID файла в OpenAI
+        """
+        # Загружаем файл
+        file = await client.files.create(
+            file=file_content, 
+            purpose="assistants"
+        )
+        logging.info(f"File uploaded: {file.id}")
+        
+        # Получаем текущие файлы ассистента
+        file_batch = await client.beta.vector_stores.file_batches.create_and_poll(
+            vector_store_id=vector_store_id,
+            file_ids=[file.id]
+        )
+        
+        return file_batch.id
+
+    async def create_vector_store(self, user_id: int, client: AsyncOpenAI):
+        """Создает векторное хранилище"""
+        vector_store = await client.beta.vector_stores.create(name=f"User_{user_id} vector store")
+        logging.info(f"Vector store created: {vector_store.id}")
+        return vector_store.id

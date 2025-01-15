@@ -1,17 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from datetime import datetime
+import tempfile
+import os
 
 from db.session import get_async_session
-from db.models import Chat, Message, User
+from db.models import Chat, Message, User, VectorStore, File as DBFile
 from auth.tools import get_current_user
 from gpt.gpt import GPT
 from core.openai import get_openai_client
 from .tools import get_chat_title
 from .schemas import (
     PaginatedChats, PaginatedMessages, StatusResponse, 
-    SendMessageResponse, MessageCreate
+    SendMessageResponse, MessageCreate, ChatResponse
 )
 from .convert import convert_to_paginated_chats, convert_to_paginated_messages
 
@@ -23,6 +25,15 @@ router = APIRouter(
 
 gpt = GPT()
 client = get_openai_client()
+
+@router.post("/create_chat", response_model=ChatResponse)
+async def create_chat(
+    session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user)
+) -> ChatResponse:
+    thread_id = await gpt.create_thread(client)
+    chat = await Chat.create(session, current_user.id, title="Новый чат", thread_id=thread_id)
+    return ChatResponse(chat_id=chat.id, response="Чат создан")
 
 @router.post("/send_message", response_model=SendMessageResponse)
 async def send_message(
@@ -36,16 +47,17 @@ async def send_message(
     # Если chat_id не предоставлен, создаем новый чат
     if not message.chat_id:
         is_new_chat = True
+        # Сначала создаем thread в OpenAI
+        thread_id = await gpt.create_thread(client)
+        
+        # Затем создаем чат с thread_id
         chat = await Chat.create(
             session=session,
             user_id=current_user.id,
-            title="Новый чат"  # Временное название
+            title="Новый чат",  # Временное название
+            thread_id=thread_id  # Добавляем thread_id при создании
         )
         message.chat_id = chat.id
-        
-        # Создаем новый тред для чата
-        thread_id = await gpt.create_thread(client)
-        await Chat.update_thread_id(session, message.chat_id, thread_id)
     else:
         chat = await Chat.get_by_id(session, message.chat_id)
         if not chat:
@@ -70,7 +82,7 @@ async def send_message(
     # Отправляем сообщение в OpenAI
     await gpt.create_message(chat.thread_id, message.content, client)
     run = await gpt.create_and_poll_run(chat.thread_id, client, current_user.username)
-    response = await gpt.get_gpt_response(chat.thread_id, client)
+    response = await gpt.get_gpt_response(chat.thread_id, run.id, client)
 
     # Если это новый чат, получаем для него название
     if is_new_chat:
@@ -182,4 +194,34 @@ async def reset_chat_context(
     await Chat.update_thread_id(session, chat_id, new_thread_id)
 
     return StatusResponse(status="success")
+
+@router.post("/upload", response_model=StatusResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user)
+) -> StatusResponse:
+    try:
+        if not file.filename or not file.filename.lower().endswith(('.pdf', '.docx')):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Поддерживаются только PDF и DOCX файлы"
+            )
+        vector_store = await VectorStore.get_by_user_id(session, current_user.id)
+        content = await file.read()
+        if not vector_store:
+            vector_store_id = await gpt.create_vector_store(current_user.id, client)
+            vector_store = await VectorStore.create(session, current_user.id, vector_store_id)
+        file_id = await gpt.upload_file_to_vector_store(content, vector_store.vector_store_id, client)
+        
+        # Сохраняем информацию о файле в БД
+        await DBFile.create(session, file_id=file_id, chat_id=current_user.id)
+        
+        return StatusResponse(status="success")
+                
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при загрузке файла: {str(e)}"
+        )
 

@@ -22,7 +22,6 @@ class UserResponse(UserBase):
 # Схемы для токенов
 class Token(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str
 
 class TokenData(BaseModel):
@@ -37,4 +36,8 @@ class EmailVerificationResponse(BaseModel):
     """Ответ на верификацию email"""
     email: EmailStr
     email_verified: bool
+    message: str
+
+class LogoutResponse(BaseModel):
+    status: str
     message: str

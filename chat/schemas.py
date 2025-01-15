@@ -61,6 +61,7 @@ class MessageCreate(BaseModel):
     chat_id: int | None = None
 
 class ChatResponse(BaseModel):
+    """Ответ на создание чата"""
     chat_id: int
     response: str
 

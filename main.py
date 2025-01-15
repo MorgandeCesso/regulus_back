@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends
 from auth.router import router as auth_router
+from chat.router import router as chat_router
 from auth.tools import get_current_user
 from db.models import User
 import logging
@@ -8,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Regulus")
 
 app.include_router(auth_router)
-
+app.include_router(chat_router)
 @app.get("/public")
 async def public_route():
     """Этот эндпоинт доступен всем пользователям"""

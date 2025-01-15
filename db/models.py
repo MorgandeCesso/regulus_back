@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Sequence
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, relationship
 from sqlalchemy import TIMESTAMP, MetaData, Integer, String, Boolean, ForeignKey, select, and_, delete, update, func
@@ -20,6 +20,20 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    vector_store: Mapped[Optional["VectorStore"]] = relationship(
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    @classmethod
+    async def delete_refresh_token(cls, session: AsyncSession, username: str) -> Optional["User"]:
+        query = update(cls).where(cls.username == username).values(refresh_token=None)
+        await session.execute(query)
+        await session.flush()
+        
+        # Получаем и возвращаем обновленного пользователя
+        return await cls.get_by_username(session, username)
 
     @classmethod
     async def get_by_username(cls, session: AsyncSession, username: str) -> Optional["User"]:
@@ -98,19 +112,25 @@ class Chat(Base):
         back_populates="chat",
         cascade="all, delete-orphan"
     )
+    files: Mapped[List["File"]] = relationship(
+        back_populates="chat",
+        cascade="all, delete-orphan"
+    )
 
     @classmethod
-    async def create(cls, session: AsyncSession, user_id: int, title: str) -> "Chat":
+    async def create(cls, session: AsyncSession, user_id: int, title: str, thread_id: str | None = None) -> "Chat":
         now = datetime.utcnow()
-        new_chat = cls(
+        chat = cls(
             user_id=user_id,
             title=title,
+            thread_id=thread_id,
             created_at=now,
             updated_at=now
         )
-        session.add(new_chat)
-        await session.flush()
-        return new_chat
+        session.add(chat)
+        await session.commit()
+        await session.refresh(chat)
+        return chat
 
     @classmethod
     async def get_by_id(cls, session: AsyncSession, chat_id: int) -> Optional["Chat"]:
@@ -172,6 +192,7 @@ class Message(Base):
         back_populates="messages",
         cascade="all"
     )
+
 
     @classmethod
     async def create(
@@ -236,3 +257,70 @@ class Message(Base):
         
         return messages, total
 
+class File(Base):
+    __tablename__ = "files"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    file_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
+    chat: Mapped[Chat] = relationship(
+        back_populates="files",
+        cascade="all"
+    )
+
+    @classmethod
+    async def create(cls, session: AsyncSession, file_id: str, chat_id: int) -> "File":
+        new_file = cls(
+            file_id=file_id, 
+            chat_id=chat_id, 
+            created_at=datetime.utcnow()
+        )
+        session.add(new_file)
+        await session.flush()
+        return new_file
+
+    @classmethod
+    async def get_by_id(cls, session: AsyncSession, file_id: str) -> Optional["File"]:
+        query = select(cls).where(cls.file_id == file_id)
+        result = await session.execute(query)
+        return result.scalar_one_or_none()
+
+    @classmethod
+    async def delete(cls, session: AsyncSession, file_id: str) -> None:
+        query = delete(cls).where(cls.file_id == file_id)
+        await session.execute(query)
+        await session.flush()
+
+class VectorStore(Base):
+    __tablename__ = "vector_stores"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, 
+        ForeignKey("users.id"), 
+        nullable=False,
+        unique=True
+    )
+    vector_store_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    user: Mapped[User] = relationship(
+        back_populates="vector_store",
+        cascade="all"
+    )
+
+    @classmethod
+    async def create(cls, session: AsyncSession, user_id: int, vector_store_id: str) -> "VectorStore":
+        new_vector_store = cls(user_id=user_id, vector_store_id=vector_store_id)
+        session.add(new_vector_store)
+        await session.flush()
+        return new_vector_store
+
+    @classmethod
+    async def get_by_user_id(cls, session: AsyncSession, user_id: int) -> Optional["VectorStore"]:
+        query = select(cls).where(cls.user_id == user_id)
+        result = await session.execute(query)
+        return result.scalar_one_or_none()
+
+    @classmethod
+    async def delete(cls, session: AsyncSession, vector_store_id: str) -> None:
+        query = delete(cls).where(cls.vector_store_id == vector_store_id)
+        await session.execute(query)
+        await session.flush()
