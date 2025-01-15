@@ -1,6 +1,7 @@
 import logging
 from openai import AsyncOpenAI
 from configs import OPENAI_ASSISTANT_ID
+from io import BytesIO
 
 class GPT:
     def __init__(self):
@@ -86,21 +87,26 @@ class GPT:
         logging.info(f"Run cancelled: {run_id}")
         return {"status": "success", "cancelled_run_id": f"{run_id}"}
 
-    async def upload_file_to_vector_store(self, file_content: bytes, vector_store_id: str, client: AsyncOpenAI) -> str:
+    async def upload_file_to_vector_store(self, file_content: bytes, vector_store_id: str, filename: str, client: AsyncOpenAI) -> str:
         """
         Загружает файл и привязывает его к векторному хранилищу.
         
         Args:
             file_content: Содержимое файла в байтах
             vector_store_id: ID векторного хранилища
+            filename: Оригинальное имя файла с расширением
             client: OpenAI клиент
         
         Returns:
             str: ID файла в OpenAI
         """
+        # Создаем BytesIO объект
+        file_obj = BytesIO(file_content)
+        file_obj.name = filename  # Используем оригинальное имя файла
+        
         # Загружаем файл
         file = await client.files.create(
-            file=file_content, 
+            file=file_obj,
             purpose="assistants"
         )
         logging.info(f"File uploaded: {file.id}")
@@ -111,7 +117,7 @@ class GPT:
             file_ids=[file.id]
         )
         
-        return file_batch.id
+        return file.id
 
     async def create_vector_store(self, user_id: int, client: AsyncOpenAI):
         """Создает векторное хранилище"""

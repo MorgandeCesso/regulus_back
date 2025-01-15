@@ -203,27 +203,33 @@ async def reset_chat_context(
 
     return StatusResponse(status="success")
 
-@router.post("/upload", response_model=StatusResponse)
+@router.post("/{chat_id}/upload_file", response_model=UploadFileResponse)
 async def upload_file(
+    chat_id: int,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user)
 ) -> UploadFileResponse:
     try:
-        if not file.filename or not file.filename.lower().endswith(('.pdf', '.docx')):
+        if not file.filename or not file.filename.lower().endswith(('.pdf', '.docx', '.txt')):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Поддерживаются только PDF и DOCX файлы"
+                detail="Поддерживаются только TXT, PDF и DOCX файлы"
             )
         vector_store = await VectorStore.get_by_user_id(session, current_user.id)
         content = await file.read()
         if not vector_store:
             vector_store_id = await gpt.create_vector_store(current_user.id, client)
             vector_store = await VectorStore.create(session, current_user.id, vector_store_id)
-        file_id = await gpt.upload_file_to_vector_store(content, vector_store.vector_store_id, client)
+        file_id = await gpt.upload_file_to_vector_store(
+            content,
+            vector_store.vector_store_id,
+            file.filename,
+            client
+        )
         
         # Сохраняем информацию о файле в БД
-        result = await DBFile.create(session, file_id=file_id, chat_id=current_user.id, vector_store_id=vector_store.vector_store_id, filename=file.filename)
+        result = await DBFile.create(session, file_id=file_id, chat_id=chat_id, vector_store_id=vector_store.vector_store_id, filename=file.filename)
         logging.info(f"File created: {result}")
         return UploadFileResponse(status="success", file_id=result.file_id)
                 

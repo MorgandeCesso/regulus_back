@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 4df4f92ed76f
+Revision ID: fa507f590d60
 Revises: daa7d77858d3
-Create Date: 2025-01-15 16:55:15.096484
+Create Date: 2025-01-16 01:38:38.271812
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '4df4f92ed76f'
+revision: str = 'fa507f590d60'
 down_revision: Union[str, None] = 'daa7d77858d3'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -26,14 +26,18 @@ def upgrade() -> None:
     sa.Column('vector_store_id', sa.String(length=500), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('user_id')
+    sa.UniqueConstraint('user_id'),
+    sa.UniqueConstraint('vector_store_id')
     )
     op.create_table('files',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('file_id', sa.String(length=500), nullable=False),
+    sa.Column('filename', sa.String(length=500), nullable=False),
     sa.Column('created_at', sa.TIMESTAMP(), nullable=False),
+    sa.Column('vector_store_id', sa.String(length=500), nullable=False),
     sa.Column('chat_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ),
+    sa.ForeignKeyConstraint(['vector_store_id'], ['vector_stores.vector_store_id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     # ### end Alembic commands ###

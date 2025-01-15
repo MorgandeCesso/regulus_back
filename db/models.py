@@ -192,10 +192,6 @@ class Message(Base):
         back_populates="messages",
         cascade="all"
     )
-    files: Mapped[List["File"]] = relationship(
-        back_populates="messages",
-        cascade="all, delete-orphan"
-    )
 
 
     @classmethod
@@ -267,7 +263,11 @@ class File(Base):
     file_id: Mapped[str] = mapped_column(String(500), nullable=False)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
-    vector_store_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    vector_store_id: Mapped[str] = mapped_column(
+        String(500),
+        ForeignKey("vector_stores.vector_store_id"),
+        nullable=False
+    )
     chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
     chat: Mapped[Chat] = relationship(
         back_populates="files",
@@ -325,7 +325,11 @@ class VectorStore(Base):
         nullable=False,
         unique=True
     )
-    vector_store_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    vector_store_id: Mapped[str] = mapped_column(
+        String(500), 
+        nullable=False,
+        unique=True
+    )
     user: Mapped[User] = relationship(
         back_populates="vector_store",
         cascade="all"
