@@ -73,3 +73,13 @@ class SendMessageResponse(BaseModel):
     """Ответ на отправку сообщения"""
     chat_id: int
     response: str
+
+class UploadFileResponse(BaseModel):
+    """Ответ на загрузку файла"""
+    file_id: str
+    status: str
+
+class Filenames(BaseModel):
+    """Список файлов"""
+    filenames: List[str]
+

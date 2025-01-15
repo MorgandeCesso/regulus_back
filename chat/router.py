@@ -4,6 +4,7 @@ from typing import List
 from datetime import datetime
 import tempfile
 import os
+import logging
 
 from db.session import get_async_session
 from db.models import Chat, Message, User, VectorStore, File as DBFile
@@ -13,9 +14,9 @@ from core.openai import get_openai_client
 from .tools import get_chat_title
 from .schemas import (
     PaginatedChats, PaginatedMessages, StatusResponse, 
-    SendMessageResponse, MessageCreate, ChatResponse
+    SendMessageResponse, MessageCreate, ChatResponse, UploadFileResponse, Filenames
 )
-from .convert import convert_to_paginated_chats, convert_to_paginated_messages
+from .convert import convert_to_paginated_chats, convert_to_paginated_messages, convert_to_filenames
 
 router = APIRouter(
     prefix="/chat",
@@ -159,7 +160,14 @@ async def delete_chat(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к этому чату"
         )
-
+    vector_store = await VectorStore.get_by_user_id(session, current_user.id)
+    if vector_store:
+        files = await DBFile.get_by_vector_store_id(session, vector_store.vector_store_id)
+        for file in files:
+            await gpt.unattach_file_from_vector_store(file.file_id, vector_store.vector_store_id, client)
+            await gpt.delete_file(file.file_id, client)
+            file_id = await DBFile.delete(session, file.file_id)
+            logging.info(f"File deleted from database: {file_id}")
     # Удаляем тред в OpenAI
     if chat.thread_id:
         await gpt.delete_thread(chat.thread_id, client)
@@ -200,7 +208,7 @@ async def upload_file(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user)
-) -> StatusResponse:
+) -> UploadFileResponse:
     try:
         if not file.filename or not file.filename.lower().endswith(('.pdf', '.docx')):
             raise HTTPException(
@@ -215,9 +223,9 @@ async def upload_file(
         file_id = await gpt.upload_file_to_vector_store(content, vector_store.vector_store_id, client)
         
         # Сохраняем информацию о файле в БД
-        await DBFile.create(session, file_id=file_id, chat_id=current_user.id)
-        
-        return StatusResponse(status="success")
+        result = await DBFile.create(session, file_id=file_id, chat_id=current_user.id, vector_store_id=vector_store.vector_store_id, filename=file.filename)
+        logging.info(f"File created: {result}")
+        return UploadFileResponse(status="success", file_id=result.file_id)
                 
     except Exception as e:
         raise HTTPException(
@@ -225,3 +233,11 @@ async def upload_file(
             detail=f"Ошибка при загрузке файла: {str(e)}"
         )
 
+@router.get("/{chat_id}/files", response_model=Filenames)
+async def get_chat_files(
+    chat_id: int,
+    session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user)
+) -> Filenames:
+    files = await DBFile.get_chat_files(session, chat_id)
+    return convert_to_filenames(files)

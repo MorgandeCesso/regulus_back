@@ -118,3 +118,13 @@ class GPT:
         vector_store = await client.beta.vector_stores.create(name=f"User_{user_id} vector store")
         logging.info(f"Vector store created: {vector_store.id}")
         return vector_store.id
+    
+    async def unattach_file_from_vector_store(self, file_id: str, vector_store_id: str, client: AsyncOpenAI):
+        result = await client.beta.vector_stores.files.delete(vector_store_id=vector_store_id, file_id=file_id)
+        logging.info(f"File unattached from vector store: {result.id}")
+        return result.id
+    
+    async def delete_file(self, file_id: str, client: AsyncOpenAI):
+        result = await client.files.delete(file_id=file_id)
+        logging.info(f"File deleted from OpenAI: {result.id}")
+        return result.id

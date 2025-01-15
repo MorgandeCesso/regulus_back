@@ -192,6 +192,10 @@ class Message(Base):
         back_populates="messages",
         cascade="all"
     )
+    files: Mapped[List["File"]] = relationship(
+        back_populates="messages",
+        cascade="all, delete-orphan"
+    )
 
 
     @classmethod
@@ -261,19 +265,27 @@ class File(Base):
     __tablename__ = "files"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     file_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+    vector_store_id: Mapped[str] = mapped_column(String(500), nullable=False)
     chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
     chat: Mapped[Chat] = relationship(
         back_populates="files",
         cascade="all"
     )
+    vector_store: Mapped["VectorStore"] = relationship(
+        back_populates="files",
+        cascade="all"
+    )
 
     @classmethod
-    async def create(cls, session: AsyncSession, file_id: str, chat_id: int) -> "File":
+    async def create(cls, session: AsyncSession, file_id: str, chat_id: int, vector_store_id: str, filename: str) -> "File":
         new_file = cls(
             file_id=file_id, 
             chat_id=chat_id, 
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            vector_store_id=vector_store_id,
+            filename=filename
         )
         session.add(new_file)
         await session.flush()
@@ -286,10 +298,23 @@ class File(Base):
         return result.scalar_one_or_none()
 
     @classmethod
-    async def delete(cls, session: AsyncSession, file_id: str) -> None:
+    async def delete(cls, session: AsyncSession, file_id: str) -> str:
         query = delete(cls).where(cls.file_id == file_id)
         await session.execute(query)
         await session.flush()
+        return file_id
+
+    @classmethod
+    async def get_by_vector_store_id(cls, session: AsyncSession, vector_store_id: str) -> Sequence["File"]:
+        query = select(cls).where(cls.vector_store_id == vector_store_id)
+        result = await session.execute(query)
+        return result.scalars().all()
+    
+    @classmethod
+    async def get_chat_files(cls, session: AsyncSession, chat_id: int) -> Sequence["File"]:
+        query = select(cls).where(cls.chat_id == chat_id)
+        result = await session.execute(query)
+        return result.scalars().all()
 
 class VectorStore(Base):
     __tablename__ = "vector_stores"
@@ -304,6 +329,10 @@ class VectorStore(Base):
     user: Mapped[User] = relationship(
         back_populates="vector_store",
         cascade="all"
+    )
+    files: Mapped[List["File"]] = relationship(
+        back_populates="vector_store",
+        cascade="all, delete-orphan"
     )
 
     @classmethod

@@ -1,6 +1,6 @@
 from typing import Sequence
-from .schemas import PaginatedChats, PaginatedMessages, ChatBrief, Message
-from db.models import Chat, Message as DBMessage
+from .schemas import Filenames, PaginatedChats, PaginatedMessages, ChatBrief, Message
+from db.models import Chat, File, Message as DBMessage
 
 def convert_to_paginated_chats(
     chats: Sequence[Chat],
@@ -43,3 +43,7 @@ def convert_to_paginated_messages(
         limit=limit,
         offset=offset
     )
+
+def convert_to_filenames(files: Sequence[File]) -> Filenames:
+    """Конвертирует список файлов из БД в ответ API"""
+    return Filenames(filenames=[file.filename for file in files])
