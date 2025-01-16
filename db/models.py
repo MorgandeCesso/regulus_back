@@ -184,7 +184,11 @@ class Chat(Base):
 class Message(Base):
     __tablename__ = "messages"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
+    chat_id: Mapped[int] = mapped_column(
+        Integer, 
+        ForeignKey("chats.id", ondelete="CASCADE"),
+        nullable=False
+    )
     content: Mapped[str] = mapped_column(String(1000), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
     is_sent_by_bot: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -192,7 +196,6 @@ class Message(Base):
         back_populates="messages",
         cascade="all"
     )
-
 
     @classmethod
     async def create(
@@ -265,10 +268,14 @@ class File(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
     vector_store_id: Mapped[str] = mapped_column(
         String(500),
-        ForeignKey("vector_stores.vector_store_id"),
+        ForeignKey("vector_stores.vector_store_id", ondelete="CASCADE"),
         nullable=False
     )
-    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
+    chat_id: Mapped[int] = mapped_column(
+        Integer, 
+        ForeignKey("chats.id", ondelete="CASCADE"),
+        nullable=False
+    )
     chat: Mapped[Chat] = relationship(
         back_populates="files",
         cascade="all"

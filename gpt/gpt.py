@@ -7,9 +7,13 @@ class GPT:
     def __init__(self):
         self.assistant_id = OPENAI_ASSISTANT_ID
 
-    async def create_thread(self, client: AsyncOpenAI):
+    async def create_thread(self, vector_store_id: str, client: AsyncOpenAI):
         """Создает новый тред"""
-        thread = await client.beta.threads.create()
+        thread = await client.beta.threads.create(tool_resources={
+          "file_search": {
+            "vector_store_ids": [vector_store_id]
+          }
+        })
         logging.info(f"Thread created: {thread.id}")
         return thread.id
 
@@ -133,4 +137,24 @@ class GPT:
     async def delete_file(self, file_id: str, client: AsyncOpenAI):
         result = await client.files.delete(file_id=file_id)
         logging.info(f"File deleted from OpenAI: {result.id}")
+        return result.id
+
+    async def attach_vector_store_to_assistant(self, assistant_id: str, vector_store_id: str, client: AsyncOpenAI):
+        """
+        Привязывает векторное хранилище к ассистенту.
+        
+        Args:
+            assistant_id: ID ассистента
+            vector_store_id: ID векторного хранилища
+            client: OpenAI клиент
+        """
+        result = await client.beta.assistants.update(
+            assistant_id=assistant_id,
+            tool_resources={
+                "file_search": {
+                    "vector_store_ids": [vector_store_id]
+                }
+            }
+        )
+        logging.info(f"Vector store {vector_store_id} attached to assistant {assistant_id}")
         return result.id

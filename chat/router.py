@@ -32,7 +32,13 @@ async def create_chat(
     session: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user)
 ) -> ChatResponse:
-    thread_id = await gpt.create_thread(client)
+    vector_store = await VectorStore.get_by_user_id(session, current_user.id)
+    if not vector_store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Векторное хранилище не найдено"
+        )
+    thread_id = await gpt.create_thread(vector_store.vector_store_id, client)
     chat = await Chat.create(session, current_user.id, title="Новый чат", thread_id=thread_id)
     return ChatResponse(chat_id=chat.id, response="Чат создан")
 
@@ -45,32 +51,21 @@ async def send_message(
     # Флаг для отслеживания нового чата
     is_new_chat = False
     
-    # Если chat_id не предоставлен, создаем новый чат
     if not message.chat_id:
-        is_new_chat = True
-        # Сначала создаем thread в OpenAI
-        thread_id = await gpt.create_thread(client)
-        
-        # Затем создаем чат с thread_id
-        chat = await Chat.create(
-            session=session,
-            user_id=current_user.id,
-            title="Новый чат",  # Временное название
-            thread_id=thread_id  # Добавляем thread_id при создании
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Необходимо указать chat_id"
         )
-        message.chat_id = chat.id
-    else:
-        chat = await Chat.get_by_id(session, message.chat_id)
-        if not chat:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Чат не найден"
-            )
-        if chat.user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Нет доступа к этому чату"
-            )
+
+    chat = await Chat.get_by_id(session, message.chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Чат не найден"
+        )
+
+    if chat.title == "Новый чат":
+        is_new_chat = True
 
     # Сохраняем сообщение пользователя
     await Message.create(
@@ -87,8 +82,10 @@ async def send_message(
 
     # Если это новый чат, получаем для него название
     if is_new_chat:
+        logging.info(f"Beginning to generate chat title")
         title = await get_chat_title(message.content, response)
         await Chat.update_title(session, message.chat_id, title)
+        logging.info(f"Chat title generated: {title}")
 
     # Сохраняем ответ ассистента
     await Message.create(
@@ -197,8 +194,13 @@ async def reset_chat_context(
     # Удаляем старый тред и создаем новый
     if chat.thread_id:
         await gpt.delete_thread(chat.thread_id, client)
-    
-    new_thread_id = await gpt.create_thread(client)
+    vector_store = await VectorStore.get_by_user_id(session, current_user.id)
+    if not vector_store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Векторное хранилище не найдено"
+        )
+    new_thread_id = await gpt.create_thread(vector_store.vector_store_id, client)
     await Chat.update_thread_id(session, chat_id, new_thread_id)
 
     return StatusResponse(status="success")
